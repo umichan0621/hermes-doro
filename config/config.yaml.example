@@ -1,0 +1,56 @@
+model:
+  provider: openai-api
+  default: your-model-id
+  base_url: https://your-endpoint.example/v1
+  # Endpoints that only serve /chat/completions (e.g. bigmodel.cn) need this;
+  # the openai-api provider defaults to /responses and would 404 there.
+  # api_mode: chat_completions
+
+# Optional fallback; credentials belong in config/.env, never in this file.
+# fallback_providers:
+#   - provider: openai-api
+#     model: your-fallback-model-id
+#     base_url: https://your-fallback-endpoint.example/v1
+#     key_env: FALLBACK_API_KEY
+
+# QQ bot (official open platform): credentials go to config/.env
+# (QQ_APP_ID / QQ_CLIENT_SECRET). Fill allow_from with your openid after
+# bootstrap; group chats need group_policy: allowlist plus an @mention.
+# platforms:
+#   qq:
+#     extra:
+#       dm_policy: allowlist
+#       allow_from: []
+#       group_policy: deny
+
+approvals:
+  mode: smart
+  cron_mode: deny
+  timeout: 60
+  destructive_slash_confirm: false
+security:
+  allow_private_urls: false
+skills:
+  external_dirs:
+    - /opt/hermes/skills
+    - /opt/data/skills_private
+tool_loop_guardrails:
+  hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 5
+    idempotent_no_progress: 5
+terminal:
+  cwd: /opt/data/workspace
+display:
+  # Keep tool details in the local log; the agent owns the single editable
+  # progress message described in the lark-progress skill.
+  tool_progress: log
+  platforms:
+    feishu:
+      interim_assistant_messages: false
+      long_running_notifications: false
+      busy_ack_detail: false
+agent:
+  verify_on_stop: false
+plugins:
+  enabled: []

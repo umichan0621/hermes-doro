@@ -1,0 +1,21 @@
+# Runtime state and credentials are never tracked.
+/data/
+
+# Private skill repos are independent git clones, never tracked here.
+# Only the directory README is committed.
+/skills_private/*
+!/skills_private/README.md
+
+# Track only explicit templates; live configuration and backups stay local.
+/config/*
+!/config/.env.example
+!/config/config.yaml.example
+!/config/SOUL.md.example
+!/config/opencode_projects.yaml.example
+
+__pycache__/
+
+# Local editor/system miscellanea
+*.swp
+*.swo
+.DS_Store

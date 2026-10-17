@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# oc-servectl — sync host OpenCode project services (systemd --user).
+# Host-side management tool for the opencode skill (unit template in ../systemd/).
+#
+# Usage (run from the repo root):
+#   ./skills/opencode/scripts/oc-servectl sync     install the unit template, write per-project env
+#                                                   per config/opencode_projects.yaml, reconcile instances
+#   ./skills/opencode/scripts/oc-servectl status   show instance status
+#
+# Requires: bash / awk / systemctl --user / config/opencode_projects.yaml (fixed two-level format)
+set -euo pipefail
+
+# scripts/ -> opencode/ -> skills/ -> repo root
+cd "$(dirname "$0")/../../.."
+ROOT="$PWD"
+
+PROJ_YAML="${OPENCODE_PROJECTS_CONFIG:-$ROOT/config/opencode_projects.yaml}"
+UNIT_NAME="opencode-serve@.service"
+UNIT_SRC="$ROOT/skills/opencode/systemd/$UNIT_NAME"
+UNIT_DST="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$UNIT_NAME"
+SERVE_CONF="${XDG_CONFIG_HOME:-$HOME/.config}/opencode-serve"
+
+usage() {
+  sed -n '3,8p' "$0"
+  exit 1
+}
+
+# Parse opencode_projects.yaml (controlled fixed two-level format); each output line: <name>\t<dir>\t<port>
+parse_projects() {
+  [ -f "$PROJ_YAML" ] || { echo "!! Missing $PROJ_YAML" >&2; exit 1; }
+  awk '
+    function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
+    /^#/ { next }
+    /^[ \t]*$/ { next }
+    $0 == "projects:" { inp = 1; next }
+    /^[^ \t]/ { inp = 0; next }
+    inp && /^  [A-Za-z_][A-Za-z0-9_-]*:[ \t]*$/ {
+      name = trim($0); sub(/:$/, "", name); dir = ""; port = ""; next
+    }
+    inp && /^    (dir|port):/ {
+      k = $1; sub(/:$/, "", k)
+      v = $0; sub(/^    (dir|port):[ \t]*/, "", v); v = trim(v)
+      if (k == "dir") dir = v; else port = v
+      if (dir != "" && port != "") {
+        printf "%s\t%s\t%s\n", name, dir, port
+        dir = ""; port = ""
+      }
+      next
+    }
+    inp { print "!! Cannot parse line (only the fixed two-level format is supported): " $0 > "/dev/stderr"; exit 1 }
+  ' "$PROJ_YAML"
+}
+
+cmd_sync() {
+  if [ ! -f "$SERVE_CONF/auth.env" ]; then
+    echo "!! Missing $SERVE_CONF/auth.env (contents: OPENCODE_SERVER_PASSWORD=<random long password>)" >&2
+    exit 1
+  fi
+
+  # V2 gate: this bridge speaks only the OpenCode 2.0 server API (V1 paths degrade silently on V2, see skills/opencode).
+  oc_bin="${OPENCODE_BIN:-$HOME/.opencode/bin/opencode}"
+  if [ ! -x "$oc_bin" ]; then
+    echo "!! $oc_bin not found; this bridge requires OpenCode >= 2.0, install it first" >&2
+    exit 1
+  fi
+  oc_ver="$("$oc_bin" --version 2>/dev/null | awk '{print $NF}')"
+  oc_ver="${oc_ver#v}"
+  if [ "${oc_ver%%.*}" != "2" ]; then
+    echo "!! Host OpenCode version is ${oc_ver:-unknown}; this bridge only supports OpenCode >= 2.0 (V1 server API is deprecated)" >&2
+    echo "!! Upgrade $oc_bin before running sync" >&2
+    exit 1
+  fi
+  echo "==> OpenCode ${oc_ver} (V2, OK)"
+
+  mkdir -p "$SERVE_CONF" "$(dirname "$UNIT_DST")"
+  chmod 700 "$SERVE_CONF"
+
+  echo "==> Installing unit: $UNIT_DST"
+  install -m 0644 "$UNIT_SRC" "$UNIT_DST"
+  systemctl --user daemon-reload
+
+  local installed=()
+  while IFS=$'\t' read -r name dir port; do
+    if [ ! -d "$dir" ]; then
+      echo "!! Project directory does not exist: $dir ($name), skipping" >&2
+      continue
+    fi
+    echo "==> Writing $SERVE_CONF/$name.env (dir=$dir port=$port)"
+    {
+      echo "OPENCODE_PROJECT_DIR=$dir"
+      echo "OPENCODE_PROJECT_PORT=$port"
+    } > "$SERVE_CONF/$name.env"
+    chmod 600 "$SERVE_CONF/$name.env"
+
+    echo "==> Starting opencode-serve@$name"
+    systemctl --user enable --now "opencode-serve@$name.service" >/dev/null 2>&1 ||
+      systemctl --user restart "opencode-serve@$name.service"
+    installed+=("$name")
+  done < <(parse_projects)
+
+  # Reconcile: instances with an env file but not in the YAML get stopped and disabled
+  local f base keep n
+  for f in "$SERVE_CONF"/*.env; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f" .env)"
+    [ "$base" = "auth" ] && continue
+    keep=0
+    for n in "${installed[@]}"; do
+      [ "$n" = "$base" ] && keep=1
+    done
+    if [ "$keep" -eq 0 ]; then
+      echo "==> Stopping and disabling opencode-serve@$base (not in YAML)"
+      systemctl --user disable --now "opencode-serve@$base.service" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+cmd_status() {
+  echo "==> Configured projects ($SERVE_CONF):"
+  local f base dir port state
+  for f in "$SERVE_CONF"/*.env; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f" .env)"
+    [ "$base" = "auth" ] && continue
+    dir="$(sed -n 's/^OPENCODE_PROJECT_DIR=//p' "$f")"
+    port="$(sed -n 's/^OPENCODE_PROJECT_PORT=//p' "$f")"
+    state="$(systemctl --user is-active "opencode-serve@$base.service" 2>/dev/null || echo inactive)"
+    printf '  %-20s %-8s %-10s %s\n' "$base" "${port:-?}" "$state" "${dir:-?}"
+  done
+  echo
+  echo "==> systemd instances:"
+  systemctl --user --no-pager --no-legend list-units 'opencode-serve@*' --all 2>/dev/null ||
+    echo "  (none)"
+}
+
+case "${1:-}" in
+  sync) cmd_sync ;;
+  status) cmd_status ;;
+  *) usage ;;
+esac

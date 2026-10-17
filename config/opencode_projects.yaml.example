@@ -1,0 +1,7 @@
+# Copy to opencode_projects.yaml and fill in your host project paths.
+# Then run: ./skills/opencode/scripts/oc-servectl sync
+default: your_project
+projects:
+  your_project:
+    dir: /path/to/project
+    port: 4096
