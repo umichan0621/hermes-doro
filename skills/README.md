@@ -18,6 +18,9 @@ Current public skills:
 | ----------------- | ------------------------------------------------------------ |
 | `opencode`        | OpenCode bridge: drive whitelisted host projects             |
 | `lark-progress`   | Two-message reporting protocol for multi-step Lark tasks     |
+| `meego`           | Feishu Project (Meego/Meegle) operations: loader for the upstream meegle-cli skill; CLI and skill baked into the image |
+| `lark-suite`      | Pointer to the 28 domain skills embedded in the lark-cli binary |
+| `qq-progress`     | Recall-as-edit reporting protocol for multi-step QQ tasks    |
 | `skill-creator`   | Upstream skill-creator: workflow and eval tooling for building/improving skills |
 
 ---
@@ -32,10 +35,10 @@ read host files, and monitor long-running work.
 
 | File                                        | Purpose                                                                                          |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `opencode/SKILL.md`                         | Agent-facing protocol: V2 API rules, session lifecycle, permission handling, reporting rules      |
-| `opencode/scripts/oc_api.py`                | In-container API client: auth, version gating, response unwrapping, polling, file and shell ops   |
-| `opencode/scripts/oc-servectl`              | Host-side service management: `sync` installs the unit and reconciles instances, `status` shows state |
-| `opencode/systemd/opencode-serve@.service`  | Unit template: one `systemd --user` instance per project                                         |
+| `opencode/SKILL.md`                         | Agent-facing command reference: CLI surface, exit codes, plan/build policy, cron handover recipe |
+| `opencode/scripts/oc_api.py`                | In-container API client + orchestrator: session store, task/wait/diff/rotate commands, gating, polling, shell/file ops |
+| `opencode/scripts/oc-servectl`              | Host-side service management: `sync` installs the unit, reconciles instances, and restarts them when the template changed; `status` shows state |
+| `opencode/systemd/opencode-serve@.service`  | Unit template: one `systemd --user` instance per project (hardened: `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=full`) |
 
 ### Requirements
 
@@ -64,7 +67,10 @@ loginctl enable-linger "$USER"
 ```
 
 The project list path can be overridden with `OPENCODE_PROJECTS_CONFIG`. The
-container cannot run systemd or restart host services; inspect the matching
+unit template is sandboxed (`NoNewPrivileges`, `PrivateTmp`,
+`ProtectSystem=full`); when the template changes, `sync` detects the
+difference and restarts the affected instances automatically. The container
+cannot run systemd or restart host services; inspect the matching
 `opencode-serve@<project>.service` logs for service issues.
 
 ### Container-side configuration
@@ -83,19 +89,47 @@ In Lark/QQ you can simply say "check xxx in my_project", or use commands:
 | `/opencode project <name>`     | Switch project                |
 | `/opencode project <name> new` | Rotate that project's session |
 | `/opencode new`                | Rotate current project's session |
+| `/opencode new <task>`         | Rotate, then send the task    |
 | `/opencode <natural-language task>` | Send the task to the current project |
+| `/opencode status`             | Per-project session overview  |
+| `/opencode follow`             | Wait for the running turn and report |
+| `/opencode diff`               | What changed in the last turn |
+| `/opencode stop`               | Interrupt the running turn    |
 
 Session rules:
 
-- Doro keeps one persistent OpenCode session per project and reuses it across
-  tasks; a stored session ID is recreated automatically only on a 404 (that is
+- Doro keeps one persistent OpenCode session per project, stored in
+  `/opt/data/workspace/opencode_sessions.json` (managed entirely by
+  `oc_api.py` — atomic, lock-guarded writes; last 10 rotations remembered).
+  A stored session ID is recreated automatically only on a 404 (that is
   recovery, not rotation).
+- Sessions run the read-only **plan** agent by default; the write-capable
+  **build** agent requires explicit user consent plus `--agent build
+  --allow-build` (see the skill).
 - Rotate explicitly with `/opencode new` / `/opencode project <name> new`
   (natural language like "start a fresh session for xxx" also works). On
   rotation, the old session's creation time, topic, and cumulative tokens are
   announced.
 - Task replies end with the current session's cumulative tokens.
 - `/new` resets Doro's own conversation and never rotates OpenCode sessions.
+
+### CLI quick reference (in-container)
+
+`python3 /opt/data/skills/opencode/scripts/oc_api.py <command> ...`
+
+- High-level: `task` `wait` `stop` `status` `diff` `rotate` `overview`
+  `todos` `selftest` `handoff` `session-get`/`session-set` `approve` `form`
+- Low-level: `server` `sessions` `info` `label` `new` `prompt` `answer`
+  `pending` `interrupt` `shell` `file` `ls`
+
+Exit codes: `0` success · `1` error · `2` usage/policy refusal · `3` awaiting
+a human decision (pending form/permission) · `4` still running (anchor
+persisted; hand off via `handoff <project> --write` + a cron check, or
+`wait`). `task`/`wait` stdout is directly relay-able (conclusion + outcome
+with elapsed + tokens with cost); progress goes to stderr. After upgrading
+host OpenCode, run `selftest <project>` to smoke-test endpoint shapes.
+Timestamps use the container timezone; set `TZ` in `config/.env` if chat
+times look offset.
 
 ### Security boundary
 
@@ -132,6 +166,95 @@ immediately answerable requests) get no progress message.
 - Progress files live at `/opt/data/workspace/` inside the container
   (`data/workspace/` on the host). After changing real config, persona files,
   or skills, run `./run.sh` to refresh mounted content.
+
+---
+
+## meego
+
+Feishu Project (Meego/Meegle) operations: query/manage work items, workflow
+nodes, views, personal todos, schedule stats, MQL search. Unlike the other
+public skills, `meego/SKILL.md` is only a **loader** — the full upstream
+skill (SKILL.md + `references/`) from
+[meegle-cli](https://github.com/larksuite/meegle-cli) ships **baked into
+the image** (read-only at `/opt/hermes/skill/meegle/`, built from the
+same-version upstream tag) and the repo never tracks upstream content.
+
+- Both the `meegle` CLI binary and its skill content are baked into the
+  image by the `Dockerfile`: the binary comes from the npm tarball
+  (`MEEGLE_CLI_SHA256`), the skill from the same-version GitHub tag
+  tarball (`MEEGLE_SKILL_SHA256`). They are version-locked together —
+  the loader's runtime bootstrap normally never downloads anything.
+- Upgrade: bump `MEEGLE_CLI_VERSION` plus both checksums and rebuild.
+  Get `MEEGLE_SKILL_SHA256` via
+  `curl -fsSL <codeload tag url> | sha256sum`; if GitHub regenerates
+  archives and only that check fails, refresh just it.
+- Fallback: if the baked copy is missing or version-mismatched (e.g. the
+  image was not rebuilt), the loader downloads the matching tag into the
+  persistent cache `data/skill/meegle/` (`/opt/data/skill/meegle/`
+  in-container), stamped with `.version`, with atomic swap on bootstrap.
+- The container has no browser: the upstream OAuth step runs as the
+  device-code flow (`meegle auth login --device-code`, init/poll split — see
+  the loader's adaptation section).
+- Manual preseed (now only needed for the fallback path on
+  GitHub-unreachable hosts): extract the upstream tag tarball into
+  `data/skill/meegle/` on the host and write the CLI version into
+  `data/skill/meegle/.version`.
+- `MEEGLE_NO_UPDATE_CHECK=1` and `MEEGLE_TELEMETRY=disabled` are set in the
+  image (update prompt off; failed-command diagnostics reporting off).
+
+---
+
+## lark-suite
+
+Pointer/index skill for the **28 domain skills embedded in the lark-cli
+binary** (im, doc, sheets, base, calendar, mail, task, okr, approval,
+attendance, contact, wiki, drive, markdown, meeting, whiteboard, slides,
+apps, event, openapi-explorer, skill-maker, shared, workflow-* and
+aliases). The embedded skills are read on demand via
+`lark-cli skills list / read` — always in sync with the CLI version, no
+files on disk, no download.
+
+- `lark-suite/SKILL.md` carries a compact domain catalog (28 rows) plus
+  the read commands and the auth prerequisite (`lark-shared` first).
+  **The table is manually maintained**: after bumping `LARK_CLI_VERSION`,
+  refresh it from `docker exec hermes-doro lark-cli skills list` output if the
+  set changed.
+- Caveat documented in the skill (verified against the embedded binary):
+  the only real gap is `lark-apps` — its SKILL.md references
+  `creative-design/creative-design.md` for creative-design flows, and that
+  directory is not embedded (upstream excludes it wholesale because it
+  carries machine resources). `lark-sheets` `scripts/` and `lark-whiteboard`
+  `elements/` are also unembedded but unreferenced by the protocol (no
+  functional impact); `lark-meeting` scenes are markdown docs and ARE
+  embedded.
+- Related: `lark-progress` (reporting protocol used alongside any domain
+  skill), `meego` (Feishu Project — a separate CLI, do not conflate).
+
+---
+
+## qq-progress
+
+QQ counterpart of `lark-progress` for genuinely multi-step tasks. QQ has no
+message-edit API, so the two-message protocol becomes **recall + resend**:
+at most one progress message is visible at any time; each update recalls the
+previous message and resends the full accumulated log. Message layout (step
+lines, status line, closing sections, final-reply template) mirrors
+`lark-progress` and is restated in full — the skill stands alone and does
+not require loading `lark-progress`. Full protocol, quotas, and pitfalls are
+in `qq-progress/SKILL.md`.
+
+- QQ official-bot quotas drive the design: passive replies (with msg_id)
+  are capped at 5 per inbound message, a budget shared between interim
+  progress and the final reply; active messages (4 per user per month) are
+  never spent on progress. Progress sends use `msg_seq` 80+ so they never
+  collide with gateway sequence numbers.
+- `qq-progress/scripts/qq_api.py` (stdlib-only) handles token fetch (with
+  dud-token retry), passive send, and recall. It reads `QQ_APP_ID`,
+  `QQ_CLIENT_SECRET`, and `QQBOT_HOME_CHANNEL` from `config/.env`
+  (`/opt/data/.env` in-container) and picks the latest inbound `msg_id`
+  from `state.db` — there is no other history source.
+- Same trigger boundary as `lark-progress`: no progress message for
+  greetings, single lookups, or immediately answerable requests.
 
 ---
 

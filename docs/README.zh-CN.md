@@ -63,7 +63,7 @@ Agent 的 skill 分三层，读写边界清晰：
 
 公开 skill 使用顶层扁平目录：每个 `skills/<name>/SKILL.md` 是面向 agent 的协议，`skills/README.md` 是面向维护者的部署与使用说明。`run.sh` 自动发现并逐目录读写挂载。新增或移除公开 skill 后需 `./run.sh` 重建容器；仅 `docker restart` 不会更新挂载列表。
 
-当前公开 skills：`opencode`（OpenCode 桥）、`lark-progress`（飞书多步骤任务播报）、`skill-creator`（创建/改进 skill 的工作流），详见 [`skills/README.md`](../skills/README.md)。
+当前公开 skills：`opencode`（OpenCode 桥）、`lark-progress`（飞书多步骤任务播报）、`meego`（飞书项目/Meegle 操作；loader 技能，CLI 与 skill 均内置于镜像）、`lark-suite`（lark-cli 内嵌 28 个领域技能的指针）、`qq-progress`（QQ 多步骤任务播报，撤回重发）、`skill-creator`（创建/改进 skill 的工作流），详见 [`skills/README.md`](../skills/README.md)。
 
 Review agent 的迭代并提交选定文件：
 
@@ -93,14 +93,14 @@ $EDITOR config/opencode_projects.yaml  # 填宿主机项目路径（用 OpenCode
 ./build.sh && ./run.sh
 
 # 3) 确认连上
-docker logs -f hermes
+docker logs -f hermes-doro
 # 看到 [Lark] connected to wss://... 即链路通，私聊机器人发消息测试
 ```
 
 拿到自己的飞书 `open_id`：临时在 `config/.env` 加 `GATEWAY_ALLOW_ALL_USERS=true` 并注释掉 `FEISHU_ALLOWED_USERS`，重启后给机器人发一条消息，然后：
 
 ```bash
-docker exec hermes grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
+docker exec hermes-doro grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
 ```
 
 回填白名单、删掉 allow-all、再 `./run.sh`。
@@ -108,7 +108,7 @@ docker exec hermes grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
 ### QQ 机器人（官方开放平台）
 
 1. 在 [q.qq.com](https://q.qq.com) 注册机器人，拿到 AppID / Secret，填入 `config/.env` 的 `QQ_APP_ID` / `QQ_CLIENT_SECRET`
-2. `config/config.yaml` 的 `platforms.qq` 已预置 allowlist 骨架：临时在 `extra` 里加 `allow_all_users: true`，重启后私聊机器人一条消息，执行 `docker exec hermes cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` 拿到 openid 回填 `allow_from`，删掉 `allow_all_users` 再重启；群聊按需把 `group_policy` 改为 `allowlist`（群内需 @机器人 触发）
+2. `config/config.yaml` 的 `platforms.qq` 已预置 allowlist 骨架：临时在 `extra` 里加 `allow_all_users: true`，重启后私聊机器人一条消息，执行 `docker exec hermes-doro cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` 拿到 openid 回填 `allow_from`，删掉 `allow_all_users` 再重启；群聊按需把 `group_policy` 改为 `allowlist`（群内需 @机器人 触发）
 3. 正式环境（出沙箱）可能需要企业主体
 
 ## 模型配置
@@ -131,14 +131,17 @@ docker exec hermes grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
 
 ```
 hermes-doro/
-├── Dockerfile          # 基于官方镜像，预装飞书 SDK、edge-tts 和 lark-cli
+├── Dockerfile          # 基于官方镜像，预装飞书 SDK、edge-tts、lark-cli 与烘焙的 meegle skill
 ├── build.sh            # 构建镜像（--pull 强制刷新 base 镜像）
 ├── run.sh              # 启动脚本与运行时限制（需先 ./build.sh）
 ├── update.sh           # 日常更新 SOP（可选 --rebuild-image）
 ├── skills/             # 公开 skills，git 跟踪；逐目录读写挂载，单副本
 │   ├── README.md       # 各 skill 的部署与使用说明（维护者文档）
 │   ├── lark-progress/  # 飞书多步骤任务播报协议
+│   ├── meego/          # 飞书项目 (Meego/Meegle) loader 技能（CLI 与 skill 均内置于镜像）
+│   ├── lark-suite/     # lark-cli 内嵌 28 个领域技能的指针/目录页
 │   ├── opencode/       # OpenCode 桥（含 oc-servectl 与 systemd unit 模板）
+│   ├── qq-progress/    # QQ 多步骤任务播报协议（撤回重发）
 │   └── skill-creator/  # 上游 skill-creator 及评测工具
 ├── skills_private/     # 私有 skills（gitignored，仅 README 进 git）
 ├── docs/               # 翻译文档（中文 README）
@@ -157,11 +160,11 @@ hermes-doro/
 ## 日常运维
 
 ```bash
-docker logs -f hermes                 # 实时日志
+docker logs -f hermes-doro                 # 实时日志
 ./run.sh                              # 改 config/ 或 skills 目录结构后重建容器（刷新挂载）
-docker restart hermes                 # 不改配置挂载时的日常重启
-docker exec hermes hermes gateway status
-docker exec -it hermes hermes tools   # 裁剪不用的 toolset，给系统提示瘦身
+docker restart hermes-doro                 # 不改配置挂载时的日常重启
+docker exec hermes-doro hermes gateway status
+docker exec -it hermes-doro hermes tools   # 裁剪不用的 toolset，给系统提示瘦身
 ```
 
 升级：`./update.sh --rebuild-image`（等价 `./build.sh --pull && ./run.sh`；`config/` 保留本地真实配置，`data/` 通过 bind mount 保留运行时状态）。

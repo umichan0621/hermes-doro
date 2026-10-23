@@ -63,7 +63,7 @@ The agent's skills come in three layers with clear read/write boundaries:
 
 Public skills use a flat top-level layout: each `skills/<name>/SKILL.md` is the agent-facing protocol, and `skills/README.md` is the maintainer-facing deployment and usage documentation. `run.sh` auto-discovers them and mounts each directory read-write. Adding or removing a public skill requires `./run.sh` to rebuild the container; a plain `docker restart` does not refresh the mount list.
 
-Current public skills: `opencode` (OpenCode bridge), `lark-progress` (Lark multi-step task reporting), `skill-creator` (workflow for creating/improving skills) — see [`skills/README.md`](skills/README.md).
+Current public skills: `opencode` (OpenCode bridge), `lark-progress` (Lark multi-step task reporting), `meego` (Feishu Project/Meegle operations; loader skill, CLI and skill baked into the image), `lark-suite` (pointer to the 28 domain skills embedded in lark-cli), `qq-progress` (QQ multi-step task reporting via recall + resend), `skill-creator` (workflow for creating/improving skills) — see [`skills/README.md`](skills/README.md).
 
 Review the agent's iterations and commit selected files:
 
@@ -95,14 +95,14 @@ $EDITOR config/opencode_projects.yaml  # host project paths (when using the Open
 ./build.sh && ./run.sh
 
 # 3) Confirm connectivity
-docker logs -f hermes
+docker logs -f hermes-doro
 # [Lark] connected to wss://... means the link is up — DM the bot to test
 ```
 
 To get your own Lark `open_id`: temporarily add `GATEWAY_ALLOW_ALL_USERS=true` to `config/.env` and comment out `FEISHU_ALLOWED_USERS`, restart, send the bot a message, then:
 
 ```bash
-docker exec hermes grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
+docker exec hermes-doro grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
 ```
 
 Fill the allowlist back in, remove the allow-all line, and run `./run.sh` again.
@@ -110,7 +110,7 @@ Fill the allowlist back in, remove the allow-all line, and run `./run.sh` again.
 ### QQ bot (official open platform)
 
 1. Register a bot at [q.qq.com](https://q.qq.com), get the AppID / Secret, and fill in `QQ_APP_ID` / `QQ_CLIENT_SECRET` in `config/.env`
-2. `platforms.qq` in `config/config.yaml` ships with an allowlist skeleton: temporarily add `allow_all_users: true` under `extra`, restart, DM the bot one message, then run `docker exec hermes cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` to get your openid; fill in `allow_from`, remove `allow_all_users`, and restart. For group chats set `group_policy: allowlist` as needed (groups require an @mention)
+2. `platforms.qq` in `config/config.yaml` ships with an allowlist skeleton: temporarily add `allow_all_users: true` under `extra`, restart, DM the bot one message, then run `docker exec hermes-doro cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` to get your openid; fill in `allow_from`, remove `allow_all_users`, and restart. For group chats set `group_policy: allowlist` as needed (groups require an @mention)
 3. Production use (out of the sandbox) may require a business entity
 
 ## Model configuration
@@ -133,14 +133,17 @@ Multi-step tasks use two messages: a progress message created and continuously e
 
 ```
 hermes-doro/
-├── Dockerfile          # based on the official image; preinstalls the Lark SDK, edge-tts and lark-cli
+├── Dockerfile          # based on the official image; preinstalls the Lark SDK, edge-tts, lark-cli and the baked meegle skill
 ├── build.sh            # build the image (--pull force-refreshes the base image)
 ├── run.sh              # launch script and runtime limits (run ./build.sh first)
 ├── update.sh           # daily update SOP (optional --rebuild-image)
 ├── skills/             # public skills, git-tracked; mounted read-write per directory, single copy
 │   ├── README.md       # per-skill deployment and usage docs (maintainer-facing)
 │   ├── lark-progress/  # Lark multi-step task reporting protocol
+│   ├── meego/          # Feishu Project (Meego/Meegle) loader skill (CLI + skill baked into the image)
+│   ├── lark-suite/     # pointer to the 28 domain skills embedded in lark-cli
 │   ├── opencode/       # OpenCode bridge (incl. oc-servectl and the systemd unit template)
+│   ├── qq-progress/    # QQ multi-step task reporting protocol (recall + resend)
 │   └── skill-creator/  # upstream skill-creator and its eval tooling
 ├── skills_private/     # private skills (gitignored; only the README is tracked)
 ├── docs/               # translated documentation (Chinese README)
@@ -159,11 +162,11 @@ hermes-doro/
 ## Day-to-day operations
 
 ```bash
-docker logs -f hermes                 # live logs
+docker logs -f hermes-doro                 # live logs
 ./run.sh                              # rebuild the container after changing config/ or the skills layout (refreshes mounts)
-docker restart hermes                 # everyday restart when config mounts are unchanged
-docker exec hermes hermes gateway status
-docker exec -it hermes hermes tools   # trim unused toolsets to slim the system prompt
+docker restart hermes-doro                 # everyday restart when config mounts are unchanged
+docker exec hermes-doro hermes gateway status
+docker exec -it hermes-doro hermes tools   # trim unused toolsets to slim the system prompt
 ```
 
 Upgrade: `./update.sh --rebuild-image` (equivalent to `./build.sh --pull && ./run.sh`; `config/` keeps local real configs, `data/` keeps runtime state via bind mounts).
