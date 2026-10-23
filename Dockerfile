@@ -50,3 +50,54 @@ RUN set -eux; \
 # Do NOT add `USER hermes` here: the official image runs s6-overlay as PID 1
 # (root) and drops privileges to the hermes uid internally; forcing a non-root
 # USER would break the first-boot volume chown performed by the entrypoint.
+# meegle CLI (github.com/larksuite/meegle-cli): official Feishu Project
+# (Meego/Meegle) CLI backing the meego agent skill. Unlike lark-cli above,
+# the npm package is ONE universal tarball shipping every platform's binary,
+# so a single checksum covers all arches (do not split it per arch).
+# Upgrade: bump both ARGs below (checksum from
+# `curl -fsSL <registry tarball url> | sha256sum`, or npm view dist).
+ARG MEEGLE_CLI_VERSION=1.0.27
+ARG MEEGLE_CLI_SHA256=68ed0e9fcf418ed4dd0f645283c562593d312ce4b20ff11f6657494aa8a9ea4f
+RUN set -eux; \
+    case "$(uname -m)" in \
+    x86_64)  mgl_arch=x64 ;; \
+    aarch64) mgl_arch=arm64 ;; \
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    tgz="meegle-${MEEGLE_CLI_VERSION}.tgz"; \
+    curl -fsSL -o "/tmp/${tgz}" \
+    "https://registry.npmjs.org/@lark-project/meegle/-/meegle-${MEEGLE_CLI_VERSION}.tgz"; \
+    echo "${MEEGLE_CLI_SHA256}  /tmp/${tgz}" | sha256sum -c -; \
+    tar -xzf "/tmp/${tgz}" -C /tmp "package/bin/meegle-linux-${mgl_arch}"; \
+    mv "/tmp/package/bin/meegle-linux-${mgl_arch}" /usr/local/bin/meegle; \
+    chmod 0755 /usr/local/bin/meegle; \
+    meegle version; \
+    rm -rf /tmp/package "/tmp/${tgz}"
+
+# meegle agent skill (skills/meegle from the same-version upstream tag):
+# baked read-only into the image so the runtime loader bootstrap normally
+# never downloads anything. Version-locked to MEEGLE_CLI_VERSION and
+# checksum-pinned like the binary above. Lives under /opt/hermes/skill
+# (NOT /opt/data — the runtime bind mount would shadow it).
+# Upgrade: bump MEEGLE_CLI_VERSION and both MEEGLE_CLI_SHA256 and
+# MEEGLE_SKILL_SHA256 (the latter: `curl -fsSL <codeload tag url> | sha256sum`;
+# if GitHub regenerates archives and only this check fails, refresh just it).
+ARG MEEGLE_SKILL_SHA256=a39f66f2aff517ebf92b09339ba1a3d4b03cd56fd106fc3a68f8025186330a93
+RUN set -eux; \
+    tgz="meegle-skill-${MEEGLE_CLI_VERSION}.tgz"; \
+    curl -fsSL -o "/tmp/${tgz}" \
+      "https://codeload.github.com/larksuite/meegle-cli/tar.gz/refs/tags/v${MEEGLE_CLI_VERSION}"; \
+    echo "${MEEGLE_SKILL_SHA256}  /tmp/${tgz}" | sha256sum -c -; \
+    tar -xzf "/tmp/${tgz}" -C /tmp "meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle"; \
+    [ -f "/tmp/meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle/SKILL.md" ] \
+      && [ -d "/tmp/meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle/references" ]; \
+    mkdir -p /opt/hermes/skill; \
+    mv "/tmp/meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle" /opt/hermes/skill/meegle; \
+    printf '%s' "${MEEGLE_CLI_VERSION}" > /opt/hermes/skill/meegle/.version; \
+    chmod -R a+rX /opt/hermes/skill; \
+    rm -rf "/tmp/meegle-cli-${MEEGLE_CLI_VERSION}" "/tmp/${tgz}"
+
+# Disable the interactive update prompt and the default-on failed-command
+# diagnostics reporting in this hardened container (both are env-gated).
+ENV MEEGLE_NO_UPDATE_CHECK=1 \
+    MEEGLE_TELEMETRY=disabled
