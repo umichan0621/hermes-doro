@@ -72,12 +72,23 @@ cmd_sync() {
   fi
   echo "==> OpenCode ${oc_ver} (V2, OK)"
 
+  # Unit template change detection: sandbox directives (and anything else in
+  # the template) only apply to a running instance after a restart, so diff
+  # before installing and restart affected instances below.
+  unit_changed=0
+  if [ -f "$UNIT_DST" ] && ! cmp -s "$UNIT_SRC" "$UNIT_DST"; then
+    unit_changed=1
+  fi
+
   mkdir -p "$SERVE_CONF" "$(dirname "$UNIT_DST")"
   chmod 700 "$SERVE_CONF"
 
   echo "==> Installing unit: $UNIT_DST"
   install -m 0644 "$UNIT_SRC" "$UNIT_DST"
   systemctl --user daemon-reload
+  if [ "$unit_changed" -eq 1 ]; then
+    echo "==> Unit template changed; active instances will be restarted"
+  fi
 
   local installed=()
   while IFS=$'\t' read -r name dir port; do
@@ -92,9 +103,14 @@ cmd_sync() {
     } > "$SERVE_CONF/$name.env"
     chmod 600 "$SERVE_CONF/$name.env"
 
-    echo "==> Starting opencode-serve@$name"
-    systemctl --user enable --now "opencode-serve@$name.service" >/dev/null 2>&1 ||
+    if [ "$unit_changed" -eq 1 ] && systemctl --user is-active --quiet "opencode-serve@$name.service"; then
+      echo "==> Restarting opencode-serve@$name (unit template changed)"
       systemctl --user restart "opencode-serve@$name.service"
+    else
+      echo "==> Starting opencode-serve@$name"
+      systemctl --user enable --now "opencode-serve@$name.service" >/dev/null 2>&1 ||
+        systemctl --user restart "opencode-serve@$name.service"
+    fi
     installed+=("$name")
   done < <(parse_projects)
 

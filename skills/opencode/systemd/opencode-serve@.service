@@ -10,6 +10,9 @@ ExecStart=/bin/bash -lc 'cd "$OPENCODE_PROJECT_DIR" && exec %h/.opencode/bin/ope
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
 
 [Install]
 WantedBy=default.target
