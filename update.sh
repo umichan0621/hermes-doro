@@ -23,5 +23,5 @@ echo "==> Rebuilding container (mount list follows the current skills/)"
 ./run.sh
 
 echo "==> Verifying"
-docker ps --filter name=hermes --format 'container status: {{.Status}}'
-docker logs hermes --tail 20
+docker ps --filter name=hermes-doro --format 'container status: {{.Status}}'
+docker logs hermes-doro --tail 20
