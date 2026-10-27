@@ -22,7 +22,7 @@ Lark / QQ (outbound WebSocket, no public ingress)
        │ + config/ (four files) + skills/*  │
        ▼                                     ▼
  host data/ (runtime) / config/ (real)   host /mnt/hermes-doro (file exchange)
- / skills/ (public) / skills_private/ (private)
+ / skills/ (public) / skills_private/ (private) / cron/scripts (cron assets)
        │
        │ Basic Auth (HTTP, Docker bridge 172.17.0.1 only)
        ▼
@@ -39,7 +39,7 @@ The container boundary is the host's moat.
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reduce host risk          | `--cap-drop ALL` (only the 5 caps needed for startup and privilege dropping added back), `no-new-privileges`; s6 drops privileges inside the container                 |
 | No Docker socket mount    | Never `-v /var/run/docker.sock`, no `--privileged`                                                                                                                     |
-| Bounded write surface     | Code comes from the image; `data/` keeps runtime state; the four real config files in `config/` are mounted read-write but stay out of git; public `skills/<name>/` are mounted read-write and git-tracked; business files are exchanged through the shared directory (host `SHARED_DATA_DIR`, default `/mnt/hermes-doro`; mounted at the same path in the container) |
+| Bounded write surface     | Code comes from the image; `data/` keeps runtime state; the four real config files in `config/` are mounted read-write but stay out of git; public `skills/<name>/` are mounted read-write and git-tracked; `cron/scripts/` (scheduler monitor scripts) is mounted read-write and gitignored; business files are exchanged through the shared directory (host `SHARED_DATA_DIR`, default `/mnt/hermes-doro`; mounted at the same path in the container) |
 | Tool writes confined      | `HERMES_WRITE_SAFE_ROOT=/opt/data`; write tools can only act inside the data volume                                                                                     |
 | No public ingress         | Lark/QQ use outbound WebSocket; no `-p` ports exposed; dashboard disabled                                                                                               |
 | Destructive cmds reviewed | `approvals.mode: smart` + user allowlist                                                                                                                               |
@@ -73,6 +73,8 @@ git diff -- skills/
 ```
 
 Only commit public skill docs and necessary assets; `__pycache__/` is ignored. The repo's `.git` is never mounted into the container. `config/SOUL.md` requires the agent to load `skill-creator` before creating or modifying any skill, except for pure typo fixes.
+
+Cron job assets: monitor scripts for the in-container scheduler live in `cron/scripts/`, bind-mounted read-write at `/opt/data/scripts` (the agent writes and iterates them there; the mount is skipped when the directory is missing). Job definitions (`cron/jobs.yaml`) stay local — only `cron/README.md` is tracked. See [`cron/README.md`](cron/README.md).
 
 ## Quick start
 
@@ -137,6 +139,7 @@ hermes-doro/
 ├── build.sh            # build the image (--pull force-refreshes the base image)
 ├── run.sh              # launch script and runtime limits (run ./build.sh first)
 ├── update.sh           # daily update SOP (optional --rebuild-image)
+├── cron/               # container-cron assets (gitignored except README; scripts/ mounted rw at /opt/data/scripts)
 ├── skills/             # public skills, git-tracked; mounted read-write per directory, single copy
 │   ├── README.md       # per-skill deployment and usage docs (maintainer-facing)
 │   ├── lark-progress/  # Lark multi-step task reporting protocol
@@ -148,7 +151,7 @@ hermes-doro/
 ├── skills_private/     # private skills (gitignored; only the README is tracked)
 ├── docs/               # translated documentation (Chinese README)
 ├── .dockerignore       # ignores everything (Dockerfile has no COPY; build context is empty)
-├── .gitignore          # data/ fully ignored; config/ tracks only the 4 examples
+├── .gitignore          # data/ fully ignored; config/ tracks only the 4 examples; cron/ tracks only its README
 ├── data/               # runtime state (mounted at /opt/data, fully ignored)
 └── config/             # only the 4 example templates are tracked; real configs stay local
     ├── .env.example / .env

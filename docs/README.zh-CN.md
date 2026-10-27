@@ -22,7 +22,7 @@ Doro — 跑在加固 Docker 容器里的私人 AI agent，基于 [Hermes Agent]
        │   + config/ 四个单文件 + skills/*    │
        ▼                                     ▼
   宿主机 data/ (运行态) / config/ (真实配置)  宿主机 /mnt/hermes-doro (文件交换)
-  / skills/ (公开层) / skills_private/ (私有层)
+  / skills/ (公开层) / skills_private/ (私有层) / cron/scripts (cron 资产)
        │
        │ Basic Auth (HTTP, 仅 Docker bridge 172.17.0.1)
        ▼
@@ -39,7 +39,7 @@ Doro — 跑在加固 Docker 容器里的私人 AI agent，基于 [Hermes Agent]
 | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 降低宿主机风险     | `--cap-drop ALL`（仅加回启动和降权所需 5 个 cap）、`no-new-privileges`；s6 在容器内降权                                                                               |
 | 不挂 Docker socket | 绝不 `-v /var/run/docker.sock`，不 `--privileged`                                                                                                                     |
-| 项目写入范围       | 代码来自镜像；`data/` 保存运行时状态，`config/` 中四个真实配置文件可写挂载但不进 git；公开 `skills/<name>/` 可写挂载并由 git 跟踪；业务文件通过共享目录交换（宿主机 `SHARED_DATA_DIR`，默认 `/mnt/hermes-doro`；容器内同路径挂载） |
+| 项目写入范围       | 代码来自镜像；`data/` 保存运行时状态，`config/` 中四个真实配置文件可写挂载但不进 git；公开 `skills/<name>/` 可写挂载并由 git 跟踪；`cron/scripts/`（调度器 monitor 脚本）可写挂载且 gitignored；业务文件通过共享目录交换（宿主机 `SHARED_DATA_DIR`，默认 `/mnt/hermes-doro`；容器内同路径挂载） |
 | 工具写域被限定     | `HERMES_WRITE_SAFE_ROOT=/opt/data`，写工具只能在数据卷内动手                                                                                                          |
 | 没有公网入口       | 飞书/QQ 走 WebSocket 出站，不开任何 `-p` 端口；dashboard 关闭                                                                                                         |
 | 破坏性命令有人审   | `approvals.mode: smart` + 用户白名单                                                                                                                                  |
@@ -73,6 +73,8 @@ git diff -- skills/
 ```
 
 仅提交公开的技能说明和必要资源；`__pycache__/` 已忽略。仓库 `.git` 不挂载进容器。`config/SOUL.md` 要求 agent 在创建或修改 skill 前加载 `skill-creator`，纯错别字修正除外。
+
+Cron 任务资产：容器内调度器的 monitor 脚本放在 `cron/scripts/`，读写挂载到 `/opt/data/scripts`（agent 在此编写与迭代脚本；目录不存在时跳过挂载）。任务定义（`cron/jobs.yaml`）仅保存在本地——git 只跟踪 `cron/README.md`。详见 [`cron/README.md`](../cron/README.md)。
 
 ## 快速开始
 
@@ -135,6 +137,7 @@ hermes-doro/
 ├── build.sh            # 构建镜像（--pull 强制刷新 base 镜像）
 ├── run.sh              # 启动脚本与运行时限制（需先 ./build.sh）
 ├── update.sh           # 日常更新 SOP（可选 --rebuild-image）
+├── cron/               # 容器 cron 资产（除 README 外 gitignored；scripts/ 读写挂载到 /opt/data/scripts）
 ├── skills/             # 公开 skills，git 跟踪；逐目录读写挂载，单副本
 │   ├── README.md       # 各 skill 的部署与使用说明（维护者文档）
 │   ├── lark-progress/  # 飞书多步骤任务播报协议
@@ -146,7 +149,7 @@ hermes-doro/
 ├── skills_private/     # 私有 skills（gitignored，仅 README 进 git）
 ├── docs/               # 翻译文档（中文 README）
 ├── .dockerignore       # 全忽略（Dockerfile 无 COPY，构建上下文为空）
-├── .gitignore          # data/ 全量忽略；config/ 只跟踪 4 个 example
+├── .gitignore          # data/ 全量忽略；config/ 只跟踪 4 个 example；cron/ 只跟踪其 README
 ├── data/               # 运行时状态（挂载为 /opt/data，全量忽略）
 └── config/             # 仅 4 个 example 模板进 git，真实配置本地保留
     ├── .env.example / .env
