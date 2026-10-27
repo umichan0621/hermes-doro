@@ -51,6 +51,15 @@ vol_args=(-v "$DATA_DIR:/opt/data" -v "$SHARED_DATA_DIR:/mnt/hermes-doro:rw")
 for config_file in .env config.yaml SOUL.md opencode_projects.yaml; do
   vol_args+=(--mount "type=bind,src=$PWD/config/$config_file,dst=/opt/data/$config_file")
 done
+# Optional: managed cron job scripts (definitions archived in cron/jobs.yaml).
+# Mounted at /opt/data/scripts inside the container; skipped if the directory
+# is missing so fresh clones work without local cron assets.
+if [ -d "$PWD/cron/scripts" ]; then
+  vol_args+=(-v "$PWD/cron/scripts:/opt/data/scripts:rw")
+  echo "==> Mounting cron scripts: $PWD/cron/scripts -> /opt/data/scripts"
+elif [ -d "$PWD/cron" ]; then
+  echo "==> Note: cron/ exists but cron/scripts/ is missing; monitor jobs would not find their scripts (see cron/README.md)"
+fi
 # Public skills, single copy: agent edits land directly in the repo working tree.
 for skill_dir in "$PWD"/skills/*/; do
   [ -f "${skill_dir}SKILL.md" ] || continue

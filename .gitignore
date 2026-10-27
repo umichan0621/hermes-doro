@@ -1,6 +1,11 @@
 # Runtime state and credentials are never tracked.
 /data/
 
+# Cron: only the README is tracked; jobs.yaml, apply.sh and scripts/ stay
+# local (internal identifiers / private repo workflow).
+/cron/*
+!/cron/README.md
+
 # Private skill repos are independent git clones, never tracked here.
 # Only the directory README is committed.
 /skills_private/*
