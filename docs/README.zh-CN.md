@@ -110,7 +110,7 @@ docker exec hermes-doro grep -o 'ou_[a-z0-9]*' /opt/data/sessions/sessions.json
 ### QQ 机器人（官方开放平台）
 
 1. 在 [q.qq.com](https://q.qq.com) 注册机器人，拿到 AppID / Secret，填入 `config/.env` 的 `QQ_APP_ID` / `QQ_CLIENT_SECRET`
-2. `config/config.yaml` 的 `platforms.qq` 已预置 allowlist 骨架：临时在 `extra` 里加 `allow_all_users: true`，重启后私聊机器人一条消息，执行 `docker exec hermes-doro cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` 拿到 openid 回填 `allow_from`，删掉 `allow_all_users` 再重启；群聊按需把 `group_policy` 改为 `allowlist`（群内需 @机器人 触发）
+2. `config/config.yaml` 的 `platforms.qqbot` 已预置 allowlist 骨架——节键必须是 `qqbot`（网关的平台标识），其他写法会被配置解析器静默丢弃。引导流程：在 `dm_policy` 还是默认 `pairing` 时私聊机器人一条消息，执行 `docker exec hermes-doro grep -oE '"user_id": "[A-F0-9]{32}"' /opt/data/sessions/sessions.json` 拿到 openid（32 位大写十六进制），回填 `allow_from`，把 `dm_policy` 改为 `allowlist`，再 `./run.sh`；群聊按需把 `group_policy` 改为 `allowlist` 并填 `group_allow_from`（群内需 @机器人 触发）
 3. 正式环境（出沙箱）可能需要企业主体
 
 ## 模型配置

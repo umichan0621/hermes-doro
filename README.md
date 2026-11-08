@@ -112,7 +112,7 @@ Fill the allowlist back in, remove the allow-all line, and run `./run.sh` again.
 ### QQ bot (official open platform)
 
 1. Register a bot at [q.qq.com](https://q.qq.com), get the AppID / Secret, and fill in `QQ_APP_ID` / `QQ_CLIENT_SECRET` in `config/.env`
-2. `platforms.qq` in `config/config.yaml` ships with an allowlist skeleton: temporarily add `allow_all_users: true` under `extra`, restart, DM the bot one message, then run `docker exec hermes-doro cat /opt/data/sessions/sessions.json | grep -o 'ou_[a-z0-9]*'` to get your openid; fill in `allow_from`, remove `allow_all_users`, and restart. For group chats set `group_policy: allowlist` as needed (groups require an @mention)
+2. `platforms.qqbot` in `config/config.yaml` ships with an allowlist skeleton — the section key must be `qqbot` (the gateway's platform id); any other spelling is silently dropped by the config parser. Bootstrap: while `dm_policy` is still the default `pairing`, DM the bot one message, then run `docker exec hermes-doro grep -oE '"user_id": "[A-F0-9]{32}"' /opt/data/sessions/sessions.json` to get your openid (32-char uppercase hex), fill it into `allow_from`, set `dm_policy: allowlist`, and `./run.sh`. For group chats set `group_policy: allowlist` plus `group_allow_from` (groups require an @mention)
 3. Production use (out of the sandbox) may require a business entity
 
 ## Model configuration

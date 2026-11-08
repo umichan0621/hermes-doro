@@ -14,10 +14,14 @@ model:
 #     key_env: FALLBACK_API_KEY
 
 # QQ bot (official open platform): credentials go to config/.env
-# (QQ_APP_ID / QQ_CLIENT_SECRET). Fill allow_from with your openid after
-# bootstrap; group chats need group_policy: allowlist plus an @mention.
+# (QQ_APP_ID / QQ_CLIENT_SECRET). The section key MUST be `qqbot` (the
+# gateway's platform id) — any other spelling is silently dropped by the
+# config parser. Bootstrap: DM the bot while dm_policy is still the default
+# `pairing`, take your openid (32-char uppercase hex) from
+# /opt/data/sessions/sessions.json, fill allow_from, then switch to allowlist.
+# Group chats need group_policy: allowlist plus group_allow_from (@mention).
 # platforms:
-#   qq:
+#   qqbot:
 #     extra:
 #       dm_policy: allowlist
 #       allow_from: []
