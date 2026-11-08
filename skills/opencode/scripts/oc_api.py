@@ -654,12 +654,14 @@ def messages(name, session_id, limit=20):
 
 def _messages_window(name, session_id, anchor):
     """messages() page that contains `anchor`, escalating the page size
-    (50 -> 250 -> 1000): a long turn pushes the anchor out of a small
-    newest-page. Falls back to the largest page the server accepts; when
-    the anchor never appears the caller degrades to whole-page inspection.
+    (50 -> 200): a long turn pushes the anchor out of a small newest-page.
+    OpenCode 2.2.6 caps `limit` at 200 (anything larger returns 400
+    "Expected a value less than or equal to 200"), so 200 is the top rung;
+    a server that rejects 200 too falls back to the 50-page. When the
+    anchor never appears the caller degrades to whole-page inspection.
     """
     best = None
-    for limit in (50, 250, 1000):
+    for limit in (50, 200):
         try:
             page = messages(name, session_id, limit)
         except ApiError as e:
@@ -710,7 +712,7 @@ def turn_status(name, session_id, anchor=None):
                   or a conclusion with time.completed set)
 
     `anchor` is the user message id returned by prompt(). The message page
-    grows (50 -> 250 -> 1000) until the anchor is in it; if it never is,
+    grows (50 -> 200) until the anchor is in it; if it never is,
     this degrades to whole-history inspection of the newest page.
     """
     active = is_running(name, session_id)
@@ -1321,7 +1323,7 @@ def _cmd_diff(rest):
     if "from" in o:
         q.append("from=%s" % o["from"])
     elif "all" in o:
-        users = [m for m in messages(name, sid, 1000) if m["type"] == "user"]
+        users = [m for m in messages(name, sid, 200) if m["type"] == "user"]
         if not users:
             print("(no user turns to diff)")
             return 0
@@ -1551,8 +1553,8 @@ def _cmd_selftest(rest):
         note = "scratch page ok (%d msgs)" % len(messages(name, scratch["id"], 50))
         sid = store_entry(name).get("session_id")
         if sid:
-            note += "; stored-session probe: %d msgs returned for limit=1000" \
-                    % len(messages(name, sid, 1000))
+            note += "; stored-session probe: %d msgs returned for limit=200" \
+                    % len(messages(name, sid, 200))
         return note
     check("message page shape + limit probe", _messages)
 

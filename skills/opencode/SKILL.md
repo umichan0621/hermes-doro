@@ -270,8 +270,8 @@ project.
   `content-filter`, `error`) and `time.completed` is the conclusion.
 - Messages must be fetched newest-first (order=desc) and reversed — an
   ascending limited query returns the OLDEST messages and silently misses the
-  conclusion. `turn_status()` widens the page (50 → 250 → 1000) until the
-  anchor is inside it.
+  conclusion. `turn_status()` widens the page (50 → 200 — OpenCode 2.2.6
+  caps `limit` at 200) until the anchor is inside it.
 
 Use `/api/session/<id>/diff` (via the `diff` command) when the user asks what
 changed.
