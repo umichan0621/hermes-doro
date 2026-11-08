@@ -21,9 +21,6 @@ RUN apt-get update \
 
 # Newer base images (>=2026-10) ship a uv-managed venv with no pip and no uv
 # binary — bootstrap pip via ensurepip, then install into the sealed venv.
-RUN /opt/hermes/.venv/bin/python -m ensurepip \
-    && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir lark-oapi websockets edge-tts==7.2.7
-
 # lark-cli (github.com/larksuite/cli): official Lark CLI backing the
 # lark-* agent skills. Static Go binary (CGO_ENABLED=0), version-pinned and
 # sha256-verified, installed system-wide so the hermes runtime user can exec
@@ -33,6 +30,11 @@ RUN /opt/hermes/.venv/bin/python -m ensurepip \
 ARG LARK_CLI_VERSION=1.0.98
 ARG LARK_CLI_SHA256_AMD64=4a12dcb7a0aab25986d8bcd046cb45b08278531a9aac3a12b53cf3d94738fe80
 ARG LARK_CLI_SHA256_ARM64=f798b26ce4b369d70411945e7f66bbe4382c411bc47d81950a662de7b69b41ed
+# Optional download mirror prefix for github.com/codeload (e.g. https://gh-proxy.com/):
+# direct GitHub from CN crawls at ~30KB/s. Integrity is not traded away - every
+# artifact stays sha256-verified whichever front door it came through.
+# Build with: GH_MIRROR=https://gh-proxy.com/ ./build.sh
+ARG GH_MIRROR=""
 RUN set -eux; \
     case "$(uname -m)" in \
     x86_64)  lark_arch=amd64; lark_sha="$LARK_CLI_SHA256_AMD64" ;; \
@@ -40,7 +42,7 @@ RUN set -eux; \
     *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;; \
     esac; \
     tgz="lark-cli-${LARK_CLI_VERSION}-linux-${lark_arch}.tar.gz"; \
-    curl -fsSL -o "/tmp/${tgz}" "https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/${tgz}"; \
+    curl -fsSL -o "/tmp/${tgz}" "${GH_MIRROR}https://github.com/larksuite/cli/releases/download/v${LARK_CLI_VERSION}/${tgz}"; \
     echo "${lark_sha}  /tmp/${tgz}" | sha256sum -c -; \
     tar -xzf "/tmp/${tgz}" -C /usr/local/bin lark-cli; \
     chmod 0755 /usr/local/bin/lark-cli; \
@@ -86,7 +88,7 @@ ARG MEEGLE_SKILL_SHA256=a39f66f2aff517ebf92b09339ba1a3d4b03cd56fd106fc3a68f80251
 RUN set -eux; \
     tgz="meegle-skill-${MEEGLE_CLI_VERSION}.tgz"; \
     curl -fsSL -o "/tmp/${tgz}" \
-      "https://codeload.github.com/larksuite/meegle-cli/tar.gz/refs/tags/v${MEEGLE_CLI_VERSION}"; \
+      "${GH_MIRROR}https://codeload.github.com/larksuite/meegle-cli/tar.gz/refs/tags/v${MEEGLE_CLI_VERSION}"; \
     echo "${MEEGLE_SKILL_SHA256}  /tmp/${tgz}" | sha256sum -c -; \
     tar -xzf "/tmp/${tgz}" -C /tmp "meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle"; \
     [ -f "/tmp/meegle-cli-${MEEGLE_CLI_VERSION}/skills/meegle/SKILL.md" ] \
@@ -101,3 +103,13 @@ RUN set -eux; \
 # diagnostics reporting in this hardened container (both are env-gated).
 ENV MEEGLE_NO_UPDATE_CHECK=1 \
     MEEGLE_TELEMETRY=disabled
+
+# venv deps LAST: this layer changes most often (package tweaks), and layer
+# order is a cache chain — keep it after the GitHub artifact layers above so a
+# pip edit never re-downloads lark-cli/meegle. pyyaml backs ops scripts under
+# /opt/data/scripts (apply.py expects `import yaml` on the venv interpreter).
+# PyPI via the Tsinghua mirror — direct PyPI from CN is the build's bottleneck.
+RUN /opt/hermes/.venv/bin/python -m ensurepip \
+    && /opt/hermes/.venv/bin/python -m pip install --no-cache-dir \
+       -i https://pypi.tuna.tsinghua.edu.cn/simple \
+       lark-oapi websockets edge-tts==7.2.7 pyyaml

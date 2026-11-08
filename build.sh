@@ -11,4 +11,4 @@ if [ "${1:-}" = "--pull" ]; then
 fi
 
 echo "==> Building image $IMAGE"
-docker build "${extra[@]}" -t "$IMAGE" .
+docker build "${extra[@]}" --build-arg GH_MIRROR="${GH_MIRROR:-}" -t "$IMAGE" .
