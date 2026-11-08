@@ -166,8 +166,8 @@ lock-guarded writes — never edit it by hand; use `session-get`/`session-set`.
 | `shell <project> '<command>'` | Read-only location shell (no session) |
 | `file <project> <path>` / `ls <project> [path]` | Host file bytes / directory listing |
 
-Importable functions keep their names and signatures (`turn_status(project,
-session, anchor)` etc.) — cron scripts may rely on them.
+Importable functions keep their names and signatures (`turn_status(name,
+session_id, anchor=None)` etc.) — cron scripts may rely on them.
 
 Notes:
 

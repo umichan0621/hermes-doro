@@ -78,7 +78,7 @@ Low-level commands (explicit session ids):
 Or import: from oc_api import (server, root_sessions, session_report, session_label,
     new_session, prompt, messages, final_answer, is_running, turn_status, wait, shell,
     interrupt, permissions_pending, permission_reply, forms_pending, form_reply,
-    host_skills, read_host_file, list_host_dir, models, agents, switch_agent,
+    host_skills, read_host_file, list_host_dir, agents, switch_agent,
     session_diff, patch_session, delete_session, rotate_session, store_entry,
     store_update)
 """
@@ -96,7 +96,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-API = "/api"
 PROJECTS_YAML = os.environ.get("OPENCODE_PROJECTS_YAML", "/opt/data/opencode_projects.yaml")
 ENV_FILE = os.environ.get("OPENCODE_ENV_FILE", "/opt/data/.env")
 HOST = os.environ.get("OPENCODE_API_HOST", "host.docker.internal")
@@ -107,8 +106,7 @@ SCRIPTS_DIR = os.environ.get("OPENCODE_SCRIPTS_DIR", "/opt/data/scripts")
 V2_CACHE_TTL = 300
 
 _TERMINAL_FINISH = ("stop", "length", "content-filter", "error", "unknown")
-_TASK_POLL_SECONDS = 3
-_WAIT_POLL_SECONDS = 3
+_POLL_SECONDS = 3
 
 
 class ApiError(Exception):
@@ -208,7 +206,7 @@ def _request(name, path, method="GET", body=None, timeout=60):
     p = project_info(name)
     auth = "Basic " + base64.b64encode(("opencode:%s" % _password()).encode()).decode()
     r = urllib.request.Request(
-        "http://%s:%d%s%s" % (HOST, p["port"], API, path),
+        "http://%s:%d/api%s" % (HOST, p["port"], path),
         method=method,
         headers={"Authorization": auth, "Content-Type": "application/json"},
     )
@@ -871,25 +869,6 @@ def list_host_dir(name, path="."):
     return unwrap(req(name, "/fs/list?%s" % q)) or []
 
 
-def models(name):
-    """Model names only, from GET /api/config.
-
-    WARNING: the response embeds provider API keys under
-    providers.*.settings — this function extracts names only; never print
-    settings, keys, or any slice of them.
-    """
-    docs = unwrap(req(name, "/config?%s" % _loc(name))) or []
-    out = {"default": None, "providers": {}}
-    for doc in docs if isinstance(docs, list) else [docs]:
-        info = (doc or {}).get("info") or {}
-        if info.get("model") and not out["default"]:
-            out["default"] = info.get("model")
-        for pid, pv in (info.get("providers") or {}).items():
-            names = sorted((pv or {}).get("models") or {})
-            out["providers"].setdefault(pid, names)
-    return out
-
-
 # ---------------------------------------------------------------------------
 # High-level orchestration
 
@@ -1207,7 +1186,7 @@ def _cmd_task(rest):
             print("still running: session %s anchor %s — re-check with `wait` or "
                   "`status <project>`" % (sid, anchor))
             return 4
-        time.sleep(_TASK_POLL_SECONDS)
+        time.sleep(_POLL_SECONDS)
 
 
 def _cmd_wait(rest):
@@ -1249,7 +1228,7 @@ def _cmd_wait(rest):
                     raise
                 long_poll = False  # endpoint missing/unreachable -> poll
                 continue
-        time.sleep(_WAIT_POLL_SECONDS)
+        time.sleep(_POLL_SECONDS)
 
 
 def _cmd_stop(rest):
